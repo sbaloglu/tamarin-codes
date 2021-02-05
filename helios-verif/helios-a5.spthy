@@ -136,7 +136,7 @@ rule Corrupted_Trustee_key: //allows adversary to choose election secret key.
 rule Administrator_cand: //sets up candidates.
     [ In(<x1, x2>) ] 
   --[ BB_cand(x1), BB_cand(x2), V_list(<x1, x2>), OnlyOnce('Cand'), Phase('setup') ]-> 
-    [ !BBcand(x1), !BBcand(x2), !Vlist(<x1, x2>), Out(<x1, x2>) ]
+    [ !BBcand(x1), !BBcand(x2), !Vlist(<x1, x2>) ]
 
    
 rule Administrator_id: //sets up voters.

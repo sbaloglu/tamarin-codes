@@ -87,7 +87,7 @@ rule Corrupted_Trustee_key: //allows adversary to choose election secret key.
 rule Administrator_cand: //sets up candidates.
     [ In(<x1, x2>) ] 
   --[ BB_cand(x1), BB_cand(x2), V_list(<x1, x2>), OnlyOnce('Cand'), Phase('setup') ]-> 
-    [ !BBcand(x1), !BBcand(x2), !Vlist(<x1, x2>), Out(<x1, x2>) ]
+    [ !BBcand(x1), !BBcand(x2), !Vlist(<x1, x2>) ]
 
    
 rule Administrator_id: //sets up voters.
@@ -142,9 +142,9 @@ rule Voting_Platform_vote: //generates a ballot, authenticates and sends it to t
 rule Server_cast: //authenticates the voter and verifies validity of the vote, if verified, publishes the ballot on BB.
   let
       b = <c, s, pr1, pr2>
-      a = h(<id, pwd, cr, b>)
+      a1 = h(<id, pwd, cr, b>)
   in
-    [ In( <id, cr, b, a1> ), !BBkey(pkey), !Vlist(x), !BBreg(cr), !Pwd(id, pwd) ]
+    [ In( <id, cr, b, a> ), !BBkey(pkey), !Vlist(x), !BBreg(cr), !Pwd(id, pwd) ]
   --[ Eq(a, a1), Eq(verify(s, c, cr), true), Eq(ver1(pr1, c, pkey, x), ok), 
       Eq(ver2(pr2, c, cr), ok), Log(id, cr), BB_cast(cr, b), Phase('voting') ]->
     [ !BBcast(cr, b) ]
