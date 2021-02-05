@@ -106,7 +106,7 @@ In this model:
 *******************************************************************************************************************/
 
 
-theory Helios_Revoting_Verifiability_A4
+theory Helios_Verifiability_A4
 begin
  
 builtins: asymmetric-encryption, hashing

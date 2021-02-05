@@ -56,7 +56,7 @@ In this model:
 *******************************************************************************************************************/
 
 
-theory Belenios_Revoting_Verifiability_A1
+theory Belenios_Verifiability_A1
 begin
  
 builtins: asymmetric-encryption, hashing, signing

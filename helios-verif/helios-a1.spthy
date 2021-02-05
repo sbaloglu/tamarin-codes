@@ -4,16 +4,16 @@ This model is an adversary model for Helios voting protocol.
 
 In this model:
 
-- Trustee, Voters and Server are corrupted.
-  Registrar and Voting Platform are honest.
+- Trustee and Voters are corrupted. 
+  Server, Registrar and Voting Platform are honest.
 
 - Voting phases are separated by restrictions.
 
 - There are three options for public credentials of eligible voters:
 
-  a) 'empty' option when there is no public information on BB.
-  b) id option when identity of the voter is published on BB.
-  c) alias option when alias is used for each eligible voter.
+	a) 'empty' option when there is no public information on BB.
+	b) id option when identity of the voter is published on BB.
+	c) alias option when alias is used for each eligible voter.
 
   Current code is executed for alias option. To make use of id option, it should be uncommented. 
 
@@ -25,8 +25,8 @@ In this model:
 - Verification is done in three ways:
 
 	a) by checking BBcast in any time of the election.
-  b) by checking BBtally in the end of election.
-  c) by checking BBtally for empty ballots in the end of election.
+	b) by checking BBtally in the end of election.
+	c) by checking BBtally for empty ballots in the end of election.
 
 - We only check verifiability properties.
 
@@ -37,36 +37,36 @@ In this model:
   V_3 (b)  : IV1, EL11, CL1, RS1, RS21
   V_4 (c)  : IV2, EL12, CL2, RS1, RS22
 
-- Execution time for alias option: 0m10.804s (without mine)
-                                   0m11.080s (with mine)
+- Execution time for alias option: 0m10.708s (without mine)
+                                   0m7.722s  (with mine)
 
-- Execution time for id option: 0m7.964s  (without mine)
-                                0m10.010s (with mine)
+- Execution time for id option: 0m11.430s (without mine)
+                                0m8.069s  (with mine)
 
 - Results for both alias and id options:
 
-  Reachability_from_BBtally_to_BBreg (exists-trace): verified (13 steps)
-  Weak_Individual_Verifiability_0 (all-traces): falsified - found trace (10 steps)
-  Individual_Verifiability_0 (all-traces): falsified - found trace (10 steps)
-  Individual_Verifiability_1 (all-traces): verified (14 steps)
-  Individual_Verifiability_2 (all-traces): verified (5 steps)
+  Reachability_from_BBtally_to_BBreg (exists-trace): verified (12 steps)
+  Weak_Individual_Verifiability_0 (all-traces): verified (96 steps)
+  Individual_Verifiability_0 (all-traces): falsified - found trace (17 steps)
+  Individual_Verifiability_1 (all-traces): verified (10 steps)
+  Individual_Verifiability_2 (all-traces): verified (4 steps)
   Eligibility_1_0 (all-traces): verified (6 steps)
   Eligibility_1_1 (all-traces): verified (6 steps)
   Eligibility_1_2 (all-traces): verified (3 steps)
-  Eligibility_2 (all-traces): verified (6 steps)
-  No_Clash_at_Verification_0 (all-traces): verified (30 steps)
-  No_Clash_at_Verification_1 (all-traces): verified (30 steps)
-  No_Clash_at_Verification_2 (all-traces): verified (7 steps)
-  Result_1 (all-traces): falsified - found trace (9 steps)
-  Result_2_0 (all-traces): falsified - found trace (15 steps)
-  Result_2_1 (all-traces): verified (38 steps)
-  Result_2_2 (all-traces): verified (20 steps)
-  Homomorphic_Tally_Property (all-traces): verified (14 steps)
+  Eligibility_2 (all-traces): verified (5 steps)
+  No_Clash_at_Verification_0 (all-traces): verified (18 steps)
+  No_Clash_at_Verification_1 (all-traces): verified (18 steps)
+  No_Clash_at_Verification_2 (all-traces): verified (5 steps)
+  Result_1 (all-traces): verified (53 steps)
+  Result_2_0 (all-traces): verified (79 steps)
+  Result_2_1 (all-traces): verified (21 steps)
+  Result_2_2 (all-traces): verified (13 steps)
+  Homomorphic_Tally_Property (all-traces): verified (9 steps)
 
 *******************************************************************************************************************/
 
 
-theory Helios_Revoting_Verifiability_A2
+theory Helios_Verifiability_A1
 begin
  
 builtins: asymmetric-encryption, hashing
@@ -147,17 +147,11 @@ rule Registrar_Server_cast: //authenticates the voter and verifies validity of t
       a1 = h(<id, pwd, b>)
   in
     [ In( <id, b, a> ), !BBkey(pkey), !Vlist(x), !Reg(id, cr), !Pwd(id, pwd) ]
-  --[ Eq(a, a1), Eq(ver_vote(pr, c, pkey, x), ok), BB_cast(cr, b), Phase('voting') ]->
-    [ !BBcast(cr, b) ]
+  --[ Eq(a, a1), Eq(ver_vote(pr, c, pkey, x), ok), BB_cast(cr, b), Phase('voting'), VScast(id, b) ]->
+    [ !BBcast(cr, b) ] 
 
 
-rule Corrupted_Server_cast: //allows adversary to stuff any ballot to BB.
-    [ In( <cr, b> ) ] 
-  --[ BB_cast(cr, b), Phase('voting') ]-> 
-    [ !BBcast(cr, b) ]
-
-
-restriction Server_Election_Auditors_Cast: //ballot validity checks
+restriction Server_Election_Auditors_cast: //ballot validity checks
 "
   All cr b #i. BB_cast(cr, b) @i ==> Ex #j. BB_reg(cr) @j & ( b = 'empty'
   | ( Ex c pr pkey v r x1 x2 #k #l. BB_key(pkey) @k & V_list(<x1, x2>) @l 
@@ -216,6 +210,11 @@ restriction Phase_Order_1:
 restriction Phase_Order_2:
 "
   All #i #j. Phase('voting') @i & Phase('tally') @j ==> i < j
+"
+restriction Cast_Order: //server accepts ballots with respect to the cast order. (Only for honest server case)
+"
+  All id cr b b1 #i #j #k #l. VoteB(id, cr, b) @i & VoteB(id, cr, b1) @j 
+  & VScast(id, b) @k & VScast(id, b1) @l & i < j ==> k < l
 "
 restriction Verified_last: //among all casts, the last one on BB is verified.
 "

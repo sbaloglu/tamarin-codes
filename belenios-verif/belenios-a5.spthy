@@ -30,15 +30,15 @@ In this model:
   V_4 (c)  : IV2, EL12, CL2, RS1, RS22
 
 - Execution time: ???? (without mine) 
-                  - WIV0: 359m41.865s
-                  - IV0: 334m18.494s (killed)
+                  - WIV0: ~6h - 359m41.865s
+                  - IV0: ~5h34m - 334m18.494s (killed)
                   - CL0: 56m19.006s
                   - Rest: 11m29.687s 
 
                   ???? (with mine)
-                  - WIV0: 132m48.113s
-                  - IV0: 525m13.470s (killed)
-                  - CL0: 1401m33.447s (killed)
+                  - WIV0: ~2h12m - 132m48.113s
+                  - IV0: ~8h45m - 525m13.470s (killed)
+                  - CL0: ~23h21m - 1401m33.447s (killed)
                   - Rest: 16m16.951s
 
 - Results without mine:
@@ -81,7 +81,7 @@ In this model:
 *******************************************************************************************************************/
 
 
-theory Belenios_Revoting_Verifiability_A5
+theory Belenios_Verifiability_A5
 begin
 
 builtins: asymmetric-encryption, hashing, signing

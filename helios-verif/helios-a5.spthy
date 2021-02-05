@@ -37,8 +37,8 @@ In this model:
   V_4 (c)  : IV2, EL12, CL2, RS1, RS22
 
 - Execution time for alias option: 6m0.409s (without mine)
-                                   > 10h30m  (with mine)
-                                   - CL0: >626m30.536s
+                                   ????     (with mine)
+                                   - CL0: ~1d - 1448m3.696s (killed)
                                    - Rest: 7m57.992s
 
 - Execution time for id option: 0m35.955s (without mine)
@@ -106,7 +106,7 @@ In this model:
 *******************************************************************************************************************/
 
 
-theory Helios_Revoting_Verifiability_A5
+theory Helios_Verifiability_A5
 begin
  
 builtins: asymmetric-encryption, hashing
