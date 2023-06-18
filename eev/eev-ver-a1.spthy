@@ -1,0 +1,338 @@
+
+/*********************************************************************************
+
+Estonian E-Voting Protocol specification and verification for verifiability 
+with the adversary model A1 that combines:
+
+- Honest Network which is modeled by private channel for the communication 
+between Voter and VC, and 
+
+- Corrupted Voters who leak their EID to the adversary.
+
+In this specification, we verify E2E Verifiability:
+
+- Individual Verifiability (IV),
+- Eligibility Verifiability 1 (ELI1), 
+- Eligibility Verifiability 2 (ELI2), and 
+- Result Integrity (RES).
+
+Results:
+
+- Success: IV, ELI1, ELI2, RES: verified
+- Execution Time: 1.053s
+- Attacks: -
+- Outcome: E2E verifiability is satisfied.
+
+--------------------------------------------------------------------
+
+analyzed: eev-verif-a1.spthy
+
+  Individual_Verifiability (all-traces): verified (11 steps)
+  Eligibility_Verifiability_1 (all-traces): verified (3 steps)
+  Eligibility_Verifiability_2 (all-traces): verified (3 steps)
+  Result_Integrity (all-traces): verified (3 steps)
+
+**********************************************************************************/
+
+theory EEV_Verifiability_A1
+begin
+ 
+builtins: asymmetric-encryption, signing, hashing
+
+functions: enc/3, dec/2
+
+equations: dec(enc(m, pk(skE), r), skE) = m
+              
+
+// RA: Registration Authority
+// EO: Election Organizer
+// RS: Registration Service
+// TMS: Time Marking Service
+// VC: Vote Collector
+// IBBP: I-Ballot Box Processor
+
+
+// SETUP
+
+
+rule RA_EID: //generates an EID for identities 
+  let 
+      pkid = pk(~skid) //public key of the identity
+  in
+    [ In(id), Fr(~skid) ] 
+  --[ OnlyOnce(<id, 'EID'>) ]-> 
+    [ !CertID(id, pkid), !EID(id, pkid, ~skid), Out(<id, pkid>) ]
+
+
+rule EO_key: //generates an election key pair
+  let
+      pkE = pk(~skE) //public key of the election
+  in
+    [ Fr(~skE) ] 
+  --[ BB_key(pkE), OnlyOnce('key') ]-> 
+    [ !PkE(pkE), !SkE(~skE), Out(pkE) ]
+
+
+rule E0_cand: //sets up candidates for the election
+    [ In(v) ] --[  ]-> [ !Cand(v) ]
+
+
+rule E0_voter: //determines voters eligible to vote
+    [ In(id), !CertID(id, pkid) ] 
+  --[ BB_reg(id), OnlyOnce(<id, 'voter'>) ]-> 
+    [ !Voter(id) ]
+
+
+rule TMS_cert: //gets certified for its public key
+  let
+      pkTMS = pk(~skTMS) //public key of TMS
+  in
+    [ Fr(~skTMS) ] 
+  --[ OnlyOnce('TMScert') ]-> 
+    [ !CertTMS(pkTMS), !SkTMS(~skTMS), Out(pkTMS) ]
+
+
+rule RS_cert: //gets certified for its public key
+  let
+      pkRS = pk(~skRS) //public key of RS
+  in
+    [ Fr(~skRS) ] 
+  --[ OnlyOnce('RScert') ]-> 
+    [ !CertRS(pkRS), !SkRS(~skRS), Out(pkRS) ]
+
+
+rule VC_cert: //gets certified for its public key
+  let
+      pkVC = pk(~skVC) //public key of VC
+  in
+    [ Fr(~skVC) ] 
+  --[ OnlyOnce('VCcert') ]-> 
+    [ !CertVC(pkVC), !SkVC(~skVC), Out(pkVC) ]
+
+
+rule Corrupted_Voter_leak: //leaks EID to the adversary
+    [ !Voter(id), !EID(id, pkid, skid) ] 
+  --[ Corrupted(id) ]-> 
+    [ Out(<id, pkid, skid>) ]
+
+
+// VOTING
+
+
+// In Estonian voting protocol, individual verification is allowed only 
+// within a time frame, usually 30 minutes, with an identifier vid 
+// provided by VC. The following rule starts and ends the public time 
+// frame for verifying the votes by the voters.  
+
+rule Start_ver: //starts time frame for individual verification
+    [  ] --[ OnlyOnce(<$tOK, 'start'>) ]-> [ !StartTime($tOK) ]
+
+
+rule End_ver: //ends time frame for individual verification
+    [ !StartTime($tOK) ] 
+  --[ EndTime($tOK), OnlyOnce(<$tOK, 'end'>) ]-> 
+    [  ]
+
+
+// The voter uses VoteApp to generate a ballot which is the ciphertext c 
+// of the chosen candidate v with the attached signature s. A signature 
+// is created using the EID card of the voter. To distinguish the last 
+// vote cast by the voter, we use fresh randomness attached to the vote 
+// v. Then, the last generated randomness will correspond to the last vote 
+// of the voter. We specify the communication between VoteApp and VC with 
+// two rules in Tamarin. To remember the data generated in VoteApp_vote, 
+// we record the fact Rec and consume it in VoteApp_vid. We also record 
+// the facts Ch# to model a private channel between VoteApp and VC and 
+// another between VerApp and VC.
+
+rule VoteApp_vote: //generates a ballot and sends it to VC
+  let 
+      c = enc(v, pkE, ~r) //encryption of the chosen candidate
+      s = sign(c, skid)   //signature for the ciphertext
+      b = <c, s>          //ballot structure
+  in
+    [ !Voter(id), !EID(id, pkid, skid), !Cand(v), !PkE(pkE), 
+      Fr(~r), Fr(~u) ]
+  --[ Vote(id, v), VoteB(id, b), Last(id, ~u) ]->
+    [ Rec(id, v, b, ~r, ~u), Ch1(<id, b>) ]
+
+
+rule VC_accept: //accepts the ballot, stores it with an identifier, 
+                //and sends <pkid, h(c)> to TMS
+  let 
+      b = <c, s> //ballot structure
+  in
+    [ Ch1(<id, b>), !Voter(id), !CertID(id, pkid), Fr(~vid) ]
+  --[ Eq(verify(s, c, pkid), true) ]->
+    [ Vid(id, pkid, b, ~vid), Out(<pkid, h(c)>) ]
+
+
+rule TMS_tm: //signs the hash with the current time t
+  let
+      tm = sign(<pkid, hash, ~t>, skTMS) //TMS's signature 
+  in
+    [ In(<pkid, hash>), Fr(~t), !CertID(id, pkid), !SkTMS(skTMS) ]
+  --[  ]->
+    [ Out(<~t, tm>) ]
+
+
+rule VC_req: //receives the time mark for the ciphertext hash, 
+             //generates a registration request, and sends it to RS
+  let
+      b = <c, s> //ballot structure
+      req = sign(<vid, h(b)>, skVC) //registration request
+  in
+    [ In(<t, tm>), Vid(id, pkid, b, vid), !CertTMS(pkTMS), !SkVC(skVC) ]
+  --[ Eq(verify(tm, <pkid, h(c), t>, pkTMS), true) ]->
+    [ Tm(id, pkid, b, vid, t, tm), Out(<vid, h(b), req>) ]
+
+
+rule RS_reg: //registers <vid, h(b)> creating a registration confirmation
+  let
+      reg = sign(h(<vid, hash>), skRS) //registration confirmation
+  in
+    [ In(<vid, hash, req>), !CertVC(pkVC), !SkRS(skRS) ]
+  --[ Eq(verify(req, <vid, hash>, pkVC), true) ]->
+    [ !Registered(req, reg), Out(reg) ]
+
+
+// VC stores the ballot after getting a time mark from TMS and registration 
+// confirmation from RS, starts the verification time frame for the ballot 
+// cast, and sends the ballot confirmation <vid, reg> to VoteApp. The fact 
+// !Ver records the verification time frame tOK valid for that vid.
+
+rule VC_store: //stores the ballot with registration confirmation 
+    [ In(reg), Tm(id, pkid, b, vid, t, tm), !CertRS(pkRS), !StartTime(tOK) ]
+  --[ Eq(verify(reg, h(<vid, h(b)>), pkRS), true), StoreB(id, b) ]->
+    [ !Stored(id, pkid, b, vid, t, tm, reg), !Ver(vid, tOK), Ch2(<vid, reg>) ]
+
+
+// In an honest network, VC stores the ballots in the order in which 
+// they have been cast. To model this, we use the following restriction.
+
+restriction VC_store: //stores ballots in the right order
+"
+  All id b1 b2 #i1 #i2 #j1 #j2. VoteB(id, b1) @i1 & VoteB(id, b2) @i2 
+  & StoreB(id, b1) @j1 & StoreB(id, b2) @j2 & i1 < i2 ==> j1 < j2
+"
+
+
+// VoteApp receives the ballot confirmation <vid, reg> from VC, verifies reg, 
+// and generates a QR code to be used for the verification of the vote.
+// The fact !Voted records the vote the voter chose and the QR code (vid, r).  
+
+rule VoteApp_vid: //verifies registration confirmation for the ballot cast
+    [ Ch2(<vid, reg>), Rec(id, v, b, r, u), !CertRS(pkRS) ]
+  --[ Eq(verify(reg, h(<vid, h(b)>), pkRS), true) ]->
+    [ !Voted(id, v, u, vid, r) ]
+ 
+
+// The voter receives a ballot, and its registration confirmation via 
+// VerApp if the verification time frame for that ballot has not expired. 
+// Then, VerApp verifies the validity of the ballot, registration 
+// confirmation, and uses the randomness r inside the QR code to generate 
+// the ciphertexts corresponding to all candidates. The match between 
+// the encrypted ciphertext and the ballot ciphertext shows the candidate 
+// the voter chose. If it is correct, the verification is completed.  
+
+rule VerApp_ver: //verifies vote cast with the QR code 
+  let 
+      b = <c, s>          //ballot structure
+      c1 = enc(v, pkE, r) //encryption of the candidate v
+  in
+    [ !Voted(id, v, u, vid, r), !Stored(id, pkid, b, vid, t, tm, reg), 
+      !Ver(vid, tOK), !PkE(pkE), !CertID(id, pkid), !CertRS(pkRS) ]
+  --[ Eq(verify(reg, h(<vid, h(b)>), pkRS), true),
+      Eq(verify(s, c, pkid), true), Eq(c, c1), 
+      CheckTime(tOK), Verified(id, v, u) ]->
+    [  ]
+
+
+restriction VerApp_ver: //checks whether the time frame has ended
+"
+  All tOK #i. CheckTime(tOK) @i ==> not(Ex #j. EndTime(tOK) @j) 
+" 
+
+
+// TALLY
+
+
+rule IBBP_verify: //verifies each ballot stored by VC, checks whether 
+                  //it has registration confirmation
+  let 
+      b = <c, s> //ballot structure
+  in
+    [ !Voter(id), !Stored(id, pkid, b, vid, t, tm, reg), 
+      !Registered(req, reg), !CertID(id, pkid), !CertVC(pkVC), 
+      !CertRS(pkRS) ]
+  --[ Eq(verify(s, c, pkid), true), 
+      Eq(verify(req, <vid, h(b)>, pkVC), true), 
+      Eq(verify(reg, h(<vid, h(b)>), pkRS), true) ]->
+    [ !IBBPVerified(id, pkid, b, vid, t, tm, reg) ]
+
+
+rule IBBP_tally: //selects the last ballot stored by VC for the tally
+    [ !IBBPVerified(id, pkid, b, vid, t, tm, reg) ]
+  --[ BB_tally(id, b), OnlyOnce(<id, 'tally'>) ]->
+    [  ]
+
+
+restriction IBBP_tally: //selects the last stored ballot
+"
+  All id b b1 #i #j #k. StoreB(id, b1) @i & StoreB(id, b) @j 
+  & BB_tally(id, b) @k ==> i < j | b = b1
+"
+
+
+// RESTRICTIONS
+
+
+restriction OnlyOnce:
+" 
+  All x #i #j. OnlyOnce(x) @i & OnlyOnce(x) @j ==> #i = #j
+"
+restriction Equality:
+"
+  All x y #i. Eq(x, y) @i ==> x = y
+"
+
+
+// LEMMAS 
+
+
+lemma Individual_Verifiability:
+"
+  All id v u c s pkE #i #j #k. Verified(id, v, u) @i 
+  & BB_tally(id, <c, s>) @j & BB_key(pkE) @k
+  & ( All u1 #l1 #l2. Last(id, u1) @l1 & Last(id, u) @l2 ==> l1 < l2 | #l1 = #l2 )    
+  ==> ( Ex r. c = enc(v, pkE, r) ) 
+    | ( Ex #l. Corrupted(id) @l )
+"
+
+lemma Eligibility_Verifiability_1:
+"
+  All id v u #i. Verified(id, v, u) @i ==> Ex #j. BB_reg(id) @j 
+"
+
+lemma Eligibility_Verifiability_2:
+"
+  All id b #i. BB_tally(id, b) @i ==> Ex #j. BB_reg(id) @j 
+" 
+
+lemma Result_Integrity:
+"
+  All id c s pkE #i #j. BB_tally(id, <c, s>) @i & BB_key(pkE) @j    
+  ==> ( Ex v r #k. Vote(id, v) @k & c = enc(v, pkE, r) )
+    | ( Ex #k. Corrupted(id) @k )
+" 
+
+lemma Result_Integrity_2:
+"
+  All id c s pkE #i #j. BB_tally(id, <c, s>) @i & BB_key(pkE) @j    
+  ==> ( Ex v r #k. Vote(id, v) @k & c = enc(v, pkE, r) )
+    | ( Ex #k. Corrupted(id) @k )
+    | not( Ex v u #k. Verified(id, v, u) @k 
+  & ( All u1 #j1 #j2. Last(id, u1) @j1 & Last(id, u) @j2 ==> j1 < j2 | #j1 = #j2 ) ) 
+" 
+
+end
