@@ -1,0 +1,308 @@
+/*******************************************************************************************************************
+
+Belenios-tr Tamarin specification with the adversary model A2:
+
+In this model:
+
+- There are five parties: Voters, Tallier, Server, Registrar, and Voting Platform.
+
+- (Some) Voters, Tallier, and Server are corrupt, whereas Registrar and Voting Platform are honest.
+
+- Election phases; setup, voting, and tally; are separated by restrictions.
+
+- Revoting is allowed and last cast ballot is tallied.
+
+- Individual verification allows voters to verify their last ballot cast at any time on BBcast.
+
++ Ballot structure inherits the former ballot in zero-knowledge proof.
+
++ Only three ballots are allowed to be cast by the Server.
+
+- End-to-end verifiability is checked with the following properties:
+    
+  WIV1: Weak individual verifiability
+  IV2: No clash
+  IV3: Eligibility on Verified event
+  ELI: Eligibility on BBtally event
+  RES1: Strong result integrity 
+  RES2: Weak result integrity
+  REG1: Consistency on Reg event 
+  REG2: Consistency on Reg event
+  ONE: Consistency on BBtally event
+  CAND: Validity of the vote encoded on BBtally 
+
+- Execution time: 29.985s 
+
+- Results:
+
+  WIV1 (all-traces): verified (204 steps)
+  IV2 (all-traces): verified (38 steps)
+  IV3 (all-traces): verified (6 steps)
+  ELI (all-traces): verified (4 steps)
+  RES1 (all-traces): verified (18 steps)
+  RES2 (all-traces): verified (88 steps)
+  REG1 (all-traces): verified (2 steps)
+  REG2 (all-traces): verified (2 steps)
+  ONE (all-traces): verified (2 steps)
+  CAND (all-traces): verified (6 steps)
+
+- Outcome: End-to-end verifiability is satisfied for honest voters. 
+
+*******************************************************************************************************************/
+
+
+theory Belenios_tr_Verifiability_A2_3b
+begin
+ 
+builtins: asymmetric-encryption, signing, hashing
+
+functions: enc/3, dec/2, prR/3, verR/4, prL/3, verL/3, true/0, com/2
+
+equations: dec(enc(x, pk(y), z), y) = x,
+           verR(prR(enc(x1, y, z), z, <x1, x2>), enc(x1, y, z), y, <x1, x2>) = true,
+           verR(prR(enc(x2, y, z), z, <x1, x2>), enc(x2, y, z), y, <x1, x2>) = true,
+           verL(prL(enc(x, y, z), z, w), enc(x, y, z), w) = true
+
+
+// SETUP
+
+
+rule Corrupt_Tallier_key: //allows adversary to control the election's private key.
+    [ In(skE) ] 
+  --[ BB_key(pk(skE)), OnlyOnce('key'), Phase('setup') ]-> 
+    [ !Sk(skE), !BBkey(pk(skE)) ]
+
+
+rule Administrator_cand: //determines candidates to be elected.
+  let
+      vlist = <v1, v2>
+  in
+    [ In(<v1, v2>) ] 
+  --[ BB_cand(v1), BB_cand(v2), V_list(vlist), OnlyOnce('cand'), Phase('setup') ]-> 
+    [ !BBcand(v1), !BBcand(v2), !Vlist(vlist) ]
+
+   
+rule Administrator_id: //determines identities eligible to vote.
+    [ In(id) ] --[ Phase('setup') ]-> [ !Id(id) ] 
+
+
+rule Registrar_reg: //registers voter with a public credential.
+  let
+      cr = pk(~skid) //the voter's public key as the public credential
+  in
+    [ !Id(id), Fr(~skid) ] 
+  --[ Reg(id, cr), BB_reg(cr), OnlyOnce(<id, 'reg'>), Phase('setup') ]-> 
+    [ !Cred(id, cr, ~skid), !BBreg(cr), Out(cr) ]
+
+
+rule Server_pwd: //generates a password for voter authentication.
+    [ !Id(id), Fr(~pwd) ] 
+  --[ OnlyOnce(<id, 'pwd'>), Phase('setup') ]-> 
+    [ !Pwd(id, ~pwd) ]
+
+
+rule Server_bb: //sets up initial BBcast for each registered voter.
+    [ !BBreg(cr) ] 
+  --[ BB_cast(cr, 'empty'), OnlyOnce(<cr, 'bb'>), Phase('setup') ]-> 
+    [ !BBcast(cr, 'empty'), BBlast(cr, 'empty'), VPlast(cr, 'empty') ]
+
+
+rule Corrupt_Voter_corr: //leaks credentials to the adversary.
+    [ !Cred(id, cr, skid), !Pwd(id, pwd) ] 
+  --[ Corr(id) ]-> 
+    [ Out( <id, cr, skid, pwd> ) ]
+
+
+// VOTING
+
+
+rule Voting_Platform_vote: //constructs a ballot, authenticates and sends it to the server.
+  let 
+      c = enc(v, pkE, ~r)     //ciphertext
+      s = sign(c, skid)       //signature
+      l = <h(cr, b0)>         //label for the link to cr and previous ballot on BB
+      pR = prR(c, ~r, vlist)  //zero-knowledge proof for the range
+      pL = prL(c, ~r, l)      //zero-knowledge proof for the label
+      b = <c, s, pR, pL, l>   //ballot
+      a = h(<id, pwd, cr, b>) //authentication with hash function
+  in
+    [ !Cred(id, cr, skid), !Pwd(id, pwd), !BBcand(v), !Vlist(vlist), !BBkey(pkE), 
+      Fr(~r), Fr(~t), VPlast(cr, b0) ]
+  --[ Vote(id, v), VoteB(id, cr, b), VoteTime(id, v, ~t), Phase('voting') ]->
+    [ !Voted(id, cr, v, b, ~t), Out( <id, cr, b, a> ) ]
+
+
+rule Corrupt_Server_cast: //allows adversary to stuff ballots to BB.
+  let 
+      l1 = <h(cr, b0)>
+      b = <c, s, pR, pL, l>  
+  in
+    [ In( <cr, b> ), !BBreg(cr), BBlast(cr, b0) ]
+  --[ Eq(l, l1), Eq(verify(s, c, cr), true), Eq(verL(pL, c, l), true), BB_cast(cr, b), 
+      ThreeTimes(<cr, 'cast'>), Phase('voting') ]->
+    [ !BBcast(cr, b), BBlast(cr, b), VPlast(cr, b) ]
+
+
+restriction Server_Election_Auditors_cast: //ensures the ballot validity.
+"
+  All cr b #i. BB_cast(cr, b) @i ==> Ex #j. BB_reg(cr) @j & ( b = 'empty'
+    | ( Ex c s pR pL l pkE v r v1 v2 #k #l. BB_key(pkE) @k & V_list(<v1, v2>) @l 
+        & b = <c, s, pR, pL, l> & c = enc(v, pkE, r) & (v = v1 | v = v2) ) )
+"
+
+
+rule Voter_ver: //verifies the ballot on BBcast.
+    [ !Voted(id, cr, v, b, t), !BBcast(cr, b) ]
+  --[ Verified(id, cr, v, t), VerB(id, cr, b) ]->
+    [  ]
+
+
+restriction Last: //the verified ballot is currently the last on BB.
+"
+  All id cr b b1 #i #j #k. BB_cast(cr, b) @i & BB_cast(cr, b1) @j & VerB(id, cr, b) @k 
+  & i < k & j < k ==> j < i | b = b1
+"
+
+
+// TALLY
+
+
+rule Server_tally: //selects the ballot to be tallied for a public credential.
+    [ !BBcast(cr, b) ]
+  --[ BB_tally(cr, b), OnlyOnce(<cr, 'tally'>), Phase('tally') ]->
+    [ !BBtally(cr, b) ]
+
+
+restriction Server_Election_Auditors_tally: //ensures the last ballot cast is tallied.
+"
+  All cr b b1 #i #j #k. BB_cast(cr, b) @i & BB_cast(cr, b1) @j & BB_tally(cr, b) @k 
+  ==> j < i | b = b1
+"
+
+
+// OTHER RESTRICTIONS
+
+
+restriction OnlyOnce:
+" 
+  All x #i #j. OnlyOnce(x) @i & OnlyOnce(x) @j ==> #i = #j
+"
+restriction ThreeTimes:
+" 
+  All x #i #j #k #l. ThreeTimes(x) @i & ThreeTimes(x) @j & ThreeTimes(x) @k & ThreeTimes(x) @l
+  ==> #i = #j | #i = #k | #i = #l | #j = #k | #j = #l | #k = #l
+"
+restriction Equality:
+"
+  All x y #i. Eq(x,y) @i ==> x = y
+"
+restriction Phase_Order_1:
+"
+  All #i #j. Phase('setup') @i & Phase('voting') @j ==> i < j
+"
+restriction Phase_Order_2:
+"
+  All #i #j. Phase('voting') @i & Phase('tally') @j ==> i < j
+"
+
+
+// LEMMAS 
+
+/*
+lemma Reachability:
+exists-trace
+" 
+  Ex cr b #i #j #k #l #m. BB_reg(cr) @i & BB_cast(cr, 'empty') @j
+  & Vote('Alice', 'A') @k & BB_cast(cr, b) @l & BB_tally(cr, b) @m
+"
+*/
+
+// INDIVIDUAL VERIFIABILITY
+
+
+lemma WIV1:
+"
+  All id cr v t b #i #j. Verified(id, cr, v, t) @i & BB_tally(cr, b) @j
+  & ( All v1 t1 #k1 #k2. VoteTime(id, v1, t1) @k1 & VoteTime(id, v, t) @k2 
+      ==> k1 < k2 | t = t1 )  
+  ==> ( Ex c s pR pL l pkE r #k. BB_key(pkE) @k & b = <c, s, pR, pL, l> & c = enc(v, pkE, r) )
+    | ( Ex #k. Corr(id) @k ) 
+"
+
+lemma IV2:
+"
+  All id1 id2 cr v1 v2 t1 t2 #i #j. Verified(id1, cr, v1, t1) @i 
+  & Verified(id2, cr, v2, t2) @j ==> id1 = id2 
+"
+
+lemma IV3:
+"
+  All id cr v t #i. Verified(id, cr, v, t) @i ==> Ex #j. BB_reg(cr) @j  
+"  
+
+
+// ELIGIBILITY
+
+
+lemma ELI:
+"
+  All cr b #i. BB_tally(cr, b) @i 
+  ==> ( Ex id #j. BB_reg(cr) @j & Reg(id, cr) @j )
+    | ( Ex #j. BB_reg(cr) @j & b = 'empty' ) 
+"
+
+
+// RESULT INTEGRITY
+
+
+lemma RES1:
+"
+  All id cr b #i #j. BB_tally(cr, b) @i & Reg(id, cr) @j 
+  ==> ( Ex id c s pR pL l v pkE r #k #l. BB_key(pkE) @k & Vote(id, v) @l 
+        & b = <c, s, pR, pL, l> & c = enc(v, pkE, r) ) 
+      | ( Ex id #k. Corr(id) @k )
+      | ( b = 'empty' )  
+"
+
+lemma RES2:
+"
+  All id cr b #i #j. BB_tally(cr, b) @i & Reg(id, cr) @j 
+  ==> ( Ex id c s pR pL l v pkE r #k #l. BB_key(pkE) @k & Vote(id, v) @l 
+        & b = <c, s, pR, pL, l> & c = enc(v, pkE, r) ) 
+      | ( Ex id #k. Corr(id) @k ) 
+      | not( Ex v1 t #k. Verified(id, cr, v1, t) @k )
+      | ( b = 'empty' ) 
+"
+
+
+// CONSISTENCY 
+
+
+lemma REG1:
+"
+  All id id1 cr #i #j. Reg(id, cr) @i & Reg(id1, cr) @j ==> id = id1
+"
+
+lemma REG2:
+"
+  All id cr cr1 #i #j. Reg(id, cr) @i & Reg(id, cr1) @j ==> cr = cr1
+" 
+
+lemma ONE:
+"
+  All cr b b1 #i #j. BB_tally(cr, b) @i & BB_tally(cr, b1) @j ==> #i = #j
+"
+
+
+// FOR HOMOMORPHIC TALLY 
+
+
+lemma CAND:
+"
+  All cr b #i. BB_tally(cr, b) @i 
+  ==> ( Ex c s pR pL l v pkE r #j #k. BB_key(pkE) @j & BB_cand(v) @k 
+        & b = <c, s, pR, pL, l> & c = enc(v, pkE, r) )
+    | ( b = 'empty' )  
+"
+
+end
